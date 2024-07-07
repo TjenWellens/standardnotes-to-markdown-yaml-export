@@ -90,10 +90,9 @@ Standard Note Tag titles contain a dot `.` if a paid account (called "Extended")
 */
 
 
-
 // Require Args
-if(!isset($argv[1])) { 
-	echo 'Error: Need to pass the Standard Notes file path as argument/parameter 1'; 
+if(!isset($argv[1])) {
+	echo 'Error: Need to pass the Standard Notes file path as argument/parameter 1';
 	exit;
 }
 else $sn_file = file_get_contents($argv[1]);
@@ -115,10 +114,10 @@ $notes = array();
 $sn_json = json_decode($sn_file, true, 512, JSON_THROW_ON_ERROR);
 
 foreach($sn_json['items'] as $sn_item) {
-	
+
 	// Process the Notes
 	if($sn_item['content_type'] == 'Note') {
-		
+
 		// can only really be one or the other as they're locations, right? We'll handle "pinned" later
 		if(@$sn_item['content']['appData']['org.standardnotes.sn']['trashed'] == true) {
 			$sn_note_status = 'trashed';
@@ -132,9 +131,10 @@ foreach($sn_json['items'] as $sn_item) {
 		if($sn_note_status) $notes[$sn_item['uuid']]['status'] = $sn_note_status;
 		$notes[$sn_item['uuid']]['title'] = $sn_item['content']['title'];
 		$notes[$sn_item['uuid']]['sn_content'] = $sn_item['content']['text'];
+		$notes[$sn_item['uuid']]['sn_noteType'] = $sn_item['content']['noteType'];
 		$notes[$sn_item['uuid']]['created_at'] = $sn_item['created_at'];
 		$notes[$sn_item['uuid']]['updated_at'] = $sn_item['content']['appData']['org.standardnotes.sn']['client_updated_at']; // apparently $sn_item['updated_at'] is not what we wanted
-		
+
 
 		// pinned? Treat as an attribute not location/status.
 		if(@$sn_item['content']['appData']['org.standardnotes.sn']['pinned'] == true) $notes[$sn_item['uuid']]['tags']['pinned'] = true;
@@ -143,22 +143,23 @@ foreach($sn_json['items'] as $sn_item) {
 
 	// Process the Tags
 	if($sn_item['content_type'] == 'Tag') {
-		
-		if(count($sn_item['content']['references']) > 0) {$JSON[] = $sn_item;
 
-		// loop all notes in tag
-		foreach ($sn_item['content']['references'] as $tag_refs) {
-			
-			// is this tag referencing a note? not sure if it could ever reference anything else
-			if($tag_refs['content_type'] == 'Note') {
+		if(count($sn_item['content']['references']) > 0) {
+			$JSON[] = $sn_item;
 
-				// store tag as key in note to prevent duplicates
-				if(isset($tag_refs['uuid'])) { // some tags are empty
-					$notes[$tag_refs['uuid']]['tags'][$sn_item['content']['title']] = true;
+			// loop all notes in tag
+			foreach($sn_item['content']['references'] as $tag_refs) {
+
+				// is this tag referencing a note? not sure if it could ever reference anything else
+				if($tag_refs['content_type'] == 'Note') {
+
+					// store tag as key in note to prevent duplicates
+					if(isset($tag_refs['uuid'])) { // some tags are empty
+						$notes[$tag_refs['uuid']]['tags'][$sn_item['content']['title']] = true;
+					}
 				}
-			}
 
-		}
+			}
 
 		}
 
@@ -167,19 +168,239 @@ foreach($sn_json['items'] as $sn_item) {
 }
 
 
-
-
 // Export Markdown files with YAML frontmatter.
 $exported_count = 0;
 $note_ids = array();
-foreach ($notes as $note_uuid => $note_data) {
-	
-	/* 
+/**
+ * @param $note_data
+ * @return string
+ */
+function parseContent($note_data)
+{
+	$type = $note_data['sn_noteType'];
+	$title = $note_data['title'];
+	switch($type) {
+		case "super":
+			$sn_json = json_decode($note_data['sn_content'], true, 512, JSON_THROW_ON_ERROR);
+			$lines = array();
+			foreach($sn_json['root']['children'] as $child) {
+				$lines[] = parseChild($child);
+			}
+			return join("\n\n", $lines);
+		default:
+			echo "could not parse (type=$type) (title=$title), treating it as plain-text\n";
+			return $note_data['sn_content'];
+		case "markdown":
+		case "plain-text":
+			return $note_data['sn_content'];
+	}
+}
+
+function parseChild($child)
+{
+	// todo: indents
+	$type = $child['type'];
+	switch($type) {
+		case "code-highlight":
+			// todo: is there value in parsing this further?
+		case "hashtag":
+			return $child['text'];
+		case "text":
+			$format = $child['format'];
+			if(!$format) {
+				$format = "";
+			}
+
+			$format_prefix = "";
+			$format_suffix = "";
+			switch($format) {
+				// todo: complete combinations
+				// looks like binary collapse:
+				// examples
+				// 1 2 4 8 16 32
+				// 0 0 0 0  0  0 = 0 nothing
+				// 1 0 0 0  0  0 = 1 bold
+				// 0 1 0 0  0  0 = 2 italic
+				// 0 0 1 0  0  0 = 4 strikethrough
+				// 0 0 0 1  0  0 = 8 underline
+				// 0 0 0 0  1  0 = 16 code
+				// 0 0 0 0  0  1 = 32 ??
+				// 0 0 1 0  1  0 = 4 + 16 = 20 = strikethrough + code
+				// 1 1 0 0  0  0 = 3 + 16 = 19 = bold + italic
+				// 1 0 0 0  0  0 = 1 + 16 = 17 = bold + code
+				// 1 0 1 1  0  0 = 1 + 4 + 8 = 13 = bold + strikethrough + underline
+				// 1 0 1 1  1  0 = 1 + 4 + 8 + 16 = 29 = bold + strikethrough + underline + code
+				case "":
+				case 0:
+					break;
+				case 1: // bold
+					$format_prefix = "**";
+					$format_suffix = "**";
+					break;
+				case 2: // italic
+					$format_prefix = "_";
+					$format_suffix = "_";
+					break;
+				case 3: // bold + italic
+					$format_prefix = "**_";
+					$format_suffix = "_**";
+					break;
+				case 4: // strikethrough
+					$format_prefix = "~~";
+					$format_suffix = "~~";
+					break;
+				case 8: // underline
+					$format_prefix = "<u>";
+					$format_suffix = "</u>";
+					break;
+				case 9: // bold + underline
+					$format_prefix = "**<u>";
+					$format_suffix = "</u>**";
+					break;
+				case 13: // bold + strikethrough + underline
+					$format_prefix = "**~~<u>";
+					$format_suffix = "</u>~~**";
+					break;
+				case 16: // code
+					$format_prefix = "`";
+					$format_suffix = "`";
+					break;
+				case 17: // bold + code
+					$format_prefix = "**`";
+					$format_suffix = "`**";
+					break;
+				case 20: // code + strikethrough
+					$format_prefix = "`";
+					$format_suffix = "`";
+					break;
+				case 29: // bold + strikethrough + underline + code
+					$format_prefix = "**~~<u>`";
+					$format_suffix = "`</u>~~**";
+					break;
+				default:
+					$format_prefix = "todo: text-format-unknown_format='$format'";
+			}
+			return $format_prefix.$child['text'].$format_suffix;
+		case "table":
+			return array_reduce($child['children'],
+				function ($carry, $item) {
+					if($carry == "") {
+						$carry .= parseChild($item);
+						$carry .= "\n".
+							"|".
+							join("|",
+								array_map(function ($c) {
+									return "-";
+								}, $item['children'])
+							)
+							."|";
+					}
+					else {
+						$carry .= $carry .= parseChild($item);
+					}
+					$carry .= "\n";
+					return $carry;
+				}, "");
+		case "tablecell":
+		case "collapsible-container":
+		case "collapsible-title":
+		case "paragraph":
+			return join("",
+				array_map(function ($c) {
+					return parseChild($c);
+				}, $child['children']));
+		case "tablerow":
+			$row = join("|",
+				array_map(function ($c) {
+					return parseChild($c);
+				}, $child['children']));
+			return "|$row|";
+
+		case "linebreak":
+			return "\n";
+		case "heading":
+			$tag = $child['tag'];
+			switch($tag) {
+				case "h1":
+					$prefix = "# ";
+					break;
+				case "h2":
+					$prefix = "## ";
+					break;
+				case "h3":
+					$prefix = "### ";
+					break;
+				default:
+					$prefix = "todo: header-tag=$tag";
+			}
+			return $prefix.join("",
+					array_map(function ($c) {
+						return parseChild($c);
+					}, $child['children'])
+				);
+		case "horizontalrule":
+			return "\n---\n";
+		case "link":
+		case "autolink":
+			$url = $child['url'];
+			$text = join("",
+				array_map(function ($c) {
+					return parseChild($c);
+				}, $child['children']));
+			return "[$text]($url)";
+		case "listitem":
+			return "*".join("",
+					array_map(function ($c) {
+						return parseChild($c);
+					}, $child['children']));
+		case "list":
+			return "\n".join("\n",
+					array_map(function ($c) {
+						return parseChild($c);
+					}, $child['children']))."\n";
+		case "code":
+			if(!$child['children']) {
+				return "\ntodo: code without children\n";
+			}
+			if($child['children'][0]['type'] == "code") {
+				// todo: confirm only 1 child
+				// don't do anything the nested code will do all that needs to happen
+				return parseChild($child['children'][0]);
+			}
+
+			return "\n```\n".
+				join("",
+					array_map(function ($c) {
+						return parseChild($c);
+					}, $child['children'])
+				)
+				."\n```\n";
+		case "unencrypted-image":
+			$alt = $child['alt'];
+			$src = $child['src'];
+			return "![{$alt}]({$src})";
+		case "quote":
+			return "> ".join("",
+					array_map(function ($c) {
+						return parseChild($c);
+					}, $child['children']));
+		case "tab":
+			return "\t";
+		case "snfile":
+			return "todo: $type";
+		default:
+			return "todo: $type";
+	}
+}
+
+foreach($notes as $note_uuid => $note_data) {
+
+	/*
 	YAML, useful for WYSIWYM markdown metadata
 
 	WARNING: I'm not going to use a YAML lib to keep this small, however this means the resulting YAML could be malformed as it's not being validated/parsed.
 
-	NOTE: 
+	NOTE:
 
 	Zettlr uses `keywords` rather than `tags` in YAML.
 
@@ -198,17 +419,17 @@ foreach ($notes as $note_uuid => $note_data) {
 		$note_seconds = strtotime($note_data['created_at']);
 
 		$note_id = $note_id_prefix.date("YmdHis", $note_seconds);
-		while (isset($note_ids[$note_id])) {
+		while(isset($note_ids[$note_id])) {
 			$note_seconds++;
 			$note_id = $note_id_prefix.date("YmdHis", $note_seconds);
 		}
 		$note_ids[$note_id] = true;
-		
+
 
 		// manual tag YAML
 		if(!empty($note_data['tags'])) {
 			$note_tags_yaml = "tags:\n";
-			foreach ($note_data['tags'] as $note_tag_title => $value) {
+			foreach($note_data['tags'] as $note_tag_title => $value) {
 				$note_tags_yaml .= "  - $note_tag_title\n";
 			}
 
@@ -222,11 +443,12 @@ foreach ($notes as $note_uuid => $note_data) {
 		$note_yaml = "---\ntitle: $note_data[title]\ncreated: $note_data[created_at]\nupdated: $note_data[updated_at]\nuuid: $note_uuid\nid: $note_id\n$note_tags_yaml$note_status_yaml---\n\n";
 
 		$filename = preg_replace("([^\w\s\d\-_~,;\[\]\(\).])", '-', $note_data['title'])." $note_id.md";
-		$note_content = $note_yaml.$note_data['sn_content'];
+
+		$note_content = $note_yaml.parseContent($note_data);
 
 		// she lives... 👹
 		$write_note = file_put_contents($export_path.$filename, $note_content);
-		if (!$write_note) echo "Error: $note_uuid failed to write.";
+		if(!$write_note) echo "Error: $note_uuid failed to write.";
 		else echo "Exported '$filename' ($note_uuid)!\n\n";
 
 		// modification time
