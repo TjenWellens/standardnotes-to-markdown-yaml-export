@@ -100,12 +100,18 @@ else $sn_file = file_get_contents($argv[1]);
 if(!isset($argv[2])) $export_path = __DIR__.'/notes/';
 else $export_path = __DIR__.trim($argv[2]);
 
+$sn_file_metadata_dir = dirname($argv[1])."/Items/SN_File";
+$resource_path = $export_path.'/resources';
+
 // sanity
 if(file_exists($export_path)) {
 	echo 'Error: Export path already exists! We don\'t want to overwrite anything... Delete it or choose another path.';
 	exit;
 }
-else mkdir($export_path);
+else {
+	mkdir($export_path);
+	mkdir($resource_path);
+}
 
 
 $notes = array();
@@ -174,8 +180,9 @@ $note_ids = array();
 /**
  * @param $note_data
  * @return string
+ * @throws JsonException
  */
-function parseContent($note_data)
+function parseContent($note_data, $filename)
 {
 	$type = $note_data['sn_noteType'];
 	$title = $note_data['title'];
@@ -184,7 +191,7 @@ function parseContent($note_data)
 			$sn_json = json_decode($note_data['sn_content'], true, 512, JSON_THROW_ON_ERROR);
 			$lines = array();
 			foreach($sn_json['root']['children'] as $child) {
-				$lines[] = parseChild($child);
+				$lines[] = parseChild($child, $filename);
 			}
 			return join("\n\n", $lines);
 		default:
@@ -196,96 +203,34 @@ function parseContent($note_data)
 	}
 }
 
-function parseChild($child)
+/**
+ * @throws JsonException
+ */
+function parseChild($child, $note_filename)
 {
-	// todo: indents
+	// todo: should we handle indents?
 	$type = $child['type'];
 	switch($type) {
 		case "code-highlight":
 			// todo: is there value in parsing this further?
+			return $child['text'];
 		case "hashtag":
 			return $child['text'];
 		case "text":
 			$format = $child['format'];
-			if(!$format) {
-				$format = "";
-			}
-
-			$format_prefix = "";
-			$format_suffix = "";
-			switch($format) {
-				// todo: complete combinations
-				// looks like binary collapse:
-				// examples
-				// 1 2 4 8 16 32
-				// 0 0 0 0  0  0 = 0 nothing
-				// 1 0 0 0  0  0 = 1 bold
-				// 0 1 0 0  0  0 = 2 italic
-				// 0 0 1 0  0  0 = 4 strikethrough
-				// 0 0 0 1  0  0 = 8 underline
-				// 0 0 0 0  1  0 = 16 code
-				// 0 0 0 0  0  1 = 32 ??
-				// 0 0 1 0  1  0 = 4 + 16 = 20 = strikethrough + code
-				// 1 1 0 0  0  0 = 3 + 16 = 19 = bold + italic
-				// 1 0 0 0  0  0 = 1 + 16 = 17 = bold + code
-				// 1 0 1 1  0  0 = 1 + 4 + 8 = 13 = bold + strikethrough + underline
-				// 1 0 1 1  1  0 = 1 + 4 + 8 + 16 = 29 = bold + strikethrough + underline + code
-				case "":
-				case 0:
-					break;
-				case 1: // bold
-					$format_prefix = "**";
-					$format_suffix = "**";
-					break;
-				case 2: // italic
-					$format_prefix = "_";
-					$format_suffix = "_";
-					break;
-				case 3: // bold + italic
-					$format_prefix = "**_";
-					$format_suffix = "_**";
-					break;
-				case 4: // strikethrough
-					$format_prefix = "~~";
-					$format_suffix = "~~";
-					break;
-				case 8: // underline
-					$format_prefix = "<u>";
-					$format_suffix = "</u>";
-					break;
-				case 9: // bold + underline
-					$format_prefix = "**<u>";
-					$format_suffix = "</u>**";
-					break;
-				case 13: // bold + strikethrough + underline
-					$format_prefix = "**~~<u>";
-					$format_suffix = "</u>~~**";
-					break;
-				case 16: // code
-					$format_prefix = "`";
-					$format_suffix = "`";
-					break;
-				case 17: // bold + code
-					$format_prefix = "**`";
-					$format_suffix = "`**";
-					break;
-				case 20: // code + strikethrough
-					$format_prefix = "`";
-					$format_suffix = "`";
-					break;
-				case 29: // bold + strikethrough + underline + code
-					$format_prefix = "**~~<u>`";
-					$format_suffix = "`</u>~~**";
-					break;
-				default:
-					$format_prefix = "todo: text-format-unknown_format='$format'";
-			}
+			list($format_prefix, $format_suffix) = findFormatWrappers($format);
 			return $format_prefix.$child['text'].$format_suffix;
 		case "table":
+			// using reduce because we need to add the line after the first row
+			// |first|row|items|
+			// |-|-|-|
+			// |second|row|items| (optional)
 			return array_reduce($child['children'],
-				function ($carry, $item) {
+				function ($carry, $item) use ($note_filename) {
 					if($carry == "") {
-						$carry .= parseChild($item);
+						$carry .= parseChild($item, $note_filename);
+
+						// first row needs a border beneath it to be recognized as a table
 						$carry .= "\n".
 							"|".
 							join("|",
@@ -296,24 +241,21 @@ function parseChild($child)
 							."|";
 					}
 					else {
-						$carry .= $carry .= parseChild($item);
+						$carry .= $carry .= parseChild($item, $note_filename);
 					}
 					$carry .= "\n";
 					return $carry;
 				}, "");
 		case "tablecell":
+			return joinChildren("", $child['children'], $note_filename);
 		case "collapsible-container":
+			return joinChildren("", $child['children'], $note_filename);
 		case "collapsible-title":
+			return joinChildren("", $child['children'], $note_filename);
 		case "paragraph":
-			return join("",
-				array_map(function ($c) {
-					return parseChild($c);
-				}, $child['children']));
+			return joinChildren("", $child['children'], $note_filename);
 		case "tablerow":
-			$row = join("|",
-				array_map(function ($c) {
-					return parseChild($c);
-				}, $child['children']));
+			$row = joinChildren("|", $child['children'], $note_filename);
 			return "|$row|";
 
 		case "linebreak":
@@ -342,31 +284,24 @@ function parseChild($child)
 				default:
 					$prefix = "todo: header-tag=$tag ";
 			}
-			return $prefix.join("",
-					array_map(function ($c) {
-						return parseChild($c);
-					}, $child['children'])
-				);
+			return $prefix.joinChildren("", $child['children'], $note_filename);
 		case "horizontalrule":
 			return "\n---\n";
 		case "link":
 		case "autolink":
 			$url = $child['url'];
-			$text = join("",
-				array_map(function ($c) {
-					return parseChild($c);
-				}, $child['children']));
+			$text = joinChildren("", $child['children'], $note_filename);
 			return "[$text]($url)";
+		case "snfile":
+			$fileUuid = $child['fileUuid'];
+			$resource_filename = lookupResourceFilename($fileUuid);
+			global $resource_path;
+			mkdir("$resource_path/$note_filename");
+			return "![[./resources/$note_filename/${fileUuid}_$resource_filename]]";
 		case "listitem":
-			return "*".join("",
-					array_map(function ($c) {
-						return parseChild($c);
-					}, $child['children']));
+			return "*".joinChildren("", $child['children'], $note_filename);
 		case "list":
-			return "\n".join("\n",
-					array_map(function ($c) {
-						return parseChild($c);
-					}, $child['children']))."\n";
+			return "\n".joinChildren("\n", $child['children'], $note_filename)."\n";
 		case "code":
 			if(!$child['children']) {
 				return "\ntodo: code without children\n";
@@ -374,32 +309,137 @@ function parseChild($child)
 			if($child['children'][0]['type'] == "code") {
 				// todo: confirm only 1 child
 				// don't do anything the nested code will do all that needs to happen
-				return parseChild($child['children'][0]);
+				return parseChild($child['children'][0], $note_filename);
 			}
 
 			return "\n```\n".
-				join("",
-					array_map(function ($c) {
-						return parseChild($c);
-					}, $child['children'])
-				)
+				joinChildren("", $child['children'], $note_filename)
 				."\n```\n";
 		case "unencrypted-image":
 			$alt = $child['alt'];
 			$src = $child['src'];
 			return "![{$alt}]({$src})";
 		case "quote":
-			return "> ".join("",
-					array_map(function ($c) {
-						return parseChild($c);
-					}, $child['children']));
+			return "> ".joinChildren("", $child['children'], $note_filename);
 		case "tab":
 			return "\t";
-		case "snfile":
-			return "todo: $type";
 		default:
 			return "todo: $type";
 	}
+}
+
+/**
+ * @param $fileUuid1
+ * @return string
+ * @throws JsonException
+ */
+function lookupResourceFilename($fileUuid)
+{
+	$fileId = preg_replace("/-.*/", "", $fileUuid);
+	global $sn_file_metadata_dir;
+	$metadata_filepath = $sn_file_metadata_dir."/SN_File-$fileId.txt";
+	$metadata_raw = file_get_contents($metadata_filepath);
+	$metadata = json_decode($metadata_raw, true, 512, JSON_THROW_ON_ERROR);
+	return $metadata['name'];
+}
+
+/**
+ * @param $separator
+ * @param $children
+ * @param $note_filename
+ * @return string
+ * @throws JsonException
+ */
+function joinChildren($separator, $children, $note_filename)
+{
+	return join($separator,
+		array_map(function ($c) use ($note_filename) {
+			return parseChild($c, $note_filename);
+		}, $children));
+}
+
+/**
+ * @param $format
+ *
+ * <br/> looks like binary collapse:
+ * <br/> examples
+ * <br/> 1 2 4 8 16 32
+ * <br/> 0 0 0 0  0  0 = 0 nothing
+ * <br/> 1 0 0 0  0  0 = 1 bold
+ * <br/> 0 1 0 0  0  0 = 2 italic
+ * <br/> 0 0 1 0  0  0 = 4 strikethrough
+ * <br/> 0 0 0 1  0  0 = 8 underline
+ * <br/> 0 0 0 0  1  0 = 16 code
+ * <br/> 0 0 0 0  0  1 = 32 ??
+ * <br/> 0 0 1 0  1  0 = 4 + 16 = 20 = strikethrough + code
+ * <br/> 1 1 0 0  0  0 = 3 + 16 = 19 = bold + italic
+ * <br/> 1 0 0 0  0  0 = 1 + 16 = 17 = bold + code
+ * <br/> 1 0 1 1  0  0 = 1 + 4 + 8 = 13 = bold + strikethrough + underline
+ * <br/> 1 0 1 1  1  0 = 1 + 4 + 8 + 16 = 29 = bold + strikethrough + underline + code
+ *
+ * @return string[] array($format_prefix, $format_suffix)
+ */
+function findFormatWrappers($format)
+{
+	if(!$format) {
+		$format = "";
+	}
+
+	$format_prefix = "";
+	$format_suffix = "";
+	switch($format) {
+		// todo: complete combinations (preferable in a smart way)
+		case "":
+		case 0:
+			break;
+		case 1: // bold
+			$format_prefix = "**";
+			$format_suffix = "**";
+			break;
+		case 2: // italic
+			$format_prefix = "_";
+			$format_suffix = "_";
+			break;
+		case 3: // bold + italic
+			$format_prefix = "**_";
+			$format_suffix = "_**";
+			break;
+		case 4: // strikethrough
+			$format_prefix = "~~";
+			$format_suffix = "~~";
+			break;
+		case 8: // underline
+			$format_prefix = "<u>";
+			$format_suffix = "</u>";
+			break;
+		case 9: // bold + underline
+			$format_prefix = "**<u>";
+			$format_suffix = "</u>**";
+			break;
+		case 13: // bold + strikethrough + underline
+			$format_prefix = "**~~<u>";
+			$format_suffix = "</u>~~**";
+			break;
+		case 16: // code
+			$format_prefix = "`";
+			$format_suffix = "`";
+			break;
+		case 17: // bold + code
+			$format_prefix = "**`";
+			$format_suffix = "`**";
+			break;
+		case 20: // code + strikethrough
+			$format_prefix = "`";
+			$format_suffix = "`";
+			break;
+		case 29: // bold + strikethrough + underline + code
+			$format_prefix = "**~~<u>`";
+			$format_suffix = "`</u>~~**";
+			break;
+		default:
+			$format_prefix = "todo: text-format-unknown_format='$format'";
+	}
+	return array($format_prefix, $format_suffix);
 }
 
 foreach($notes as $note_uuid => $note_data) {
@@ -453,7 +493,7 @@ foreach($notes as $note_uuid => $note_data) {
 
 		$filename = preg_replace("([^\w\s\d\-_~,;\[\]\(\).])", '-', $note_data['title'])." $note_id.md";
 
-		$note_content = $note_yaml.parseContent($note_data);
+		$note_content = $note_yaml.parseContent($note_data, $filename);
 
 		// she lives... 👹
 		$write_note = file_put_contents($export_path.$filename, $note_content);
