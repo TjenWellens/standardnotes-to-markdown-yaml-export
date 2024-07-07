@@ -330,8 +330,17 @@ function parseChild($child)
 				case "h3":
 					$prefix = "### ";
 					break;
+				case "h4":
+					$prefix = "#### ";
+					break;
+				case "h5":
+					$prefix = "##### ";
+					break;
+				case "h6":
+					$prefix = "###### ";
+					break;
 				default:
-					$prefix = "todo: header-tag=$tag";
+					$prefix = "todo: header-tag=$tag ";
 			}
 			return $prefix.join("",
 					array_map(function ($c) {
