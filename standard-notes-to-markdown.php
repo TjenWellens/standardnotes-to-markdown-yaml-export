@@ -219,7 +219,7 @@ foreach ($notes as $note_uuid => $note_data) {
 		else $note_status_yaml = '';
 
 		// manual note YAML
-		$note_yaml = "---\ntitle: $note_data[title]\ncreated: $note_data[created_at]\nuuid: $note_uuid\nid: $note_id\n$note_tags_yaml$note_status_yaml---\n\n";
+		$note_yaml = "---\ntitle: $note_data[title]\ncreated: $note_data[created_at]\nupdated: $note_data[updated_at]\nuuid: $note_uuid\nid: $note_id\n$note_tags_yaml$note_status_yaml---\n\n";
 
 		$filename = preg_replace("([^\w\s\d\-_~,;\[\]\(\).])", '-', $note_data['title'])." $note_id.md";
 		$note_content = $note_yaml.$note_data['sn_content'];
