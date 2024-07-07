@@ -282,7 +282,7 @@ function parseChild($child, $note_filename)
 					$prefix = "###### ";
 					break;
 				default:
-					$prefix = "todo: header-tag=$tag ";
+					$prefix = "#error: header-tag=$tag ";
 			}
 			return $prefix.joinChildren("", $child['children'], $note_filename);
 		case "horizontalrule":
@@ -305,7 +305,7 @@ function parseChild($child, $note_filename)
 			return "\n".joinChildren("\n", $child['children'], $note_filename)."\n";
 		case "code":
 			if(!$child['children']) {
-				return "\ntodo: code without children\n";
+				return "\n#error: code without children\n";
 			}
 			if($child['children'][0]['type'] == "code") {
 				// todo: confirm only 1 child
@@ -325,7 +325,7 @@ function parseChild($child, $note_filename)
 		case "tab":
 			return "\t";
 		default:
-			return "todo: $type";
+			return "#error: $type";
 	}
 }
 
@@ -438,7 +438,7 @@ function findFormatWrappers($format)
 			$format_suffix = "`</u>~~**";
 			break;
 		default:
-			$format_prefix = "todo: text-format-unknown_format='$format'";
+			$format_prefix = "#error: text-format-unknown_format='$format'";
 	}
 	return array($format_prefix, $format_suffix);
 }
@@ -511,5 +511,6 @@ foreach($notes as $note_uuid => $note_data) {
 }
 
 echo "Exported $exported_count Notes to: $export_path\n";
+echo "Please also check the .md files for '#error:' to check if things failed";
 
 ?>
