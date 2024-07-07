@@ -218,8 +218,8 @@ function parseChild($child, $note_filename)
 			return $child['text'];
 		case "text":
 			$format = $child['format'];
-			list($format_prefix, $format_suffix) = findFormatWrappers($format);
-			return $format_prefix.$child['text'].$format_suffix;
+			list($format_prefix, $metadata_path) = findFormatWrappers($format);
+			return $format_prefix.$child['text'].$metadata_path;
 		case "table":
 			// using reduce because we need to add the line after the first row
 			// |first|row|items|
@@ -294,10 +294,11 @@ function parseChild($child, $note_filename)
 			return "[$text]($url)";
 		case "snfile":
 			$fileUuid = $child['fileUuid'];
-			$resource_filename = lookupResourceFilename($fileUuid);
+			list($original_filename, $metadata_filepath) = lookupResourceFilename($fileUuid);
 			global $resource_path;
 			mkdir("$resource_path/$note_filename");
-			return "![[./resources/$note_filename/${fileUuid}_$resource_filename]]";
+			copy($metadata_filepath, "$resource_path/$note_filename/metadata_$fileUuid.json");
+			return "![[./resources/$note_filename/${fileUuid}_$original_filename]]";
 		case "listitem":
 			return "*".joinChildren("", $child['children'], $note_filename);
 		case "list":
@@ -330,7 +331,7 @@ function parseChild($child, $note_filename)
 
 /**
  * @param $fileUuid1
- * @return string
+ * @return string[] array(original_filename: string, metadata_filepath: string)
  * @throws JsonException
  */
 function lookupResourceFilename($fileUuid)
@@ -340,7 +341,7 @@ function lookupResourceFilename($fileUuid)
 	$metadata_filepath = $sn_file_metadata_dir."/SN_File-$fileId.txt";
 	$metadata_raw = file_get_contents($metadata_filepath);
 	$metadata = json_decode($metadata_raw, true, 512, JSON_THROW_ON_ERROR);
-	return $metadata['name'];
+	return array($metadata['name'], $metadata_filepath);
 }
 
 /**
