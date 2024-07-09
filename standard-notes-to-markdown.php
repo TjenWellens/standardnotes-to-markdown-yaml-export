@@ -574,6 +574,16 @@ function findFormatWrappers($format)
 	return array($format_prefix, $format_suffix);
 }
 
+function updateFileDates(string $filePath, $updated_at, $created_at)
+{
+	// set updated time
+	touch($filePath, strtotime($updated_at));
+
+	// set created date
+	$createdSetfileDate=date("m/d/Y H:i:s", strtotime($created_at));
+	exec("setfile -d '$createdSetfileDate' '$filePath'");
+}
+
 foreach($notes as $note_uuid => $note_data) {
 
 	/*
@@ -633,7 +643,8 @@ foreach($notes as $note_uuid => $note_data) {
 		else echo "Exported '$filename' ($note_uuid)!\n\n";
 
 		// modification time
-		touch($export_path.$filename, strtotime($note_data['updated_at']));
+
+		updateFileDates($export_path.$filename, $note_data['updated_at'], $note_data['created_at']);
 
 		$exported_count++;
 
