@@ -319,7 +319,11 @@ function parseChild($child, $note_filename)
 				return "\n#error: code without children\n";
 			}
 			if(firstChildIsType($child['children'], "code")) {
-				// todo: confirm only 1 child
+				if (!hasSingleChild($child['children'])) {
+					// confirm only 1 child -> lazyness assuming this case never occurs
+					// if it does occur, you will want to co something more complicated than getting [0]'t child and ignoring the rest
+					return "\n#error: nested code with multiple children\n";
+				}
 				// don't do anything the nested code will do all that needs to happen
 				return parseChild($child['children'][0], $note_filename);
 			}
@@ -410,6 +414,7 @@ function firstOnlyChildHasType($parent, $type): bool
  */
 function firstChildIsType($parent, $type): bool
 {
+	// todo: fix: should be parent['children']
 	return $parent[0]['type'] == $type;
 }
 
@@ -419,6 +424,7 @@ function firstChildIsType($parent, $type): bool
  */
 function hasSingleChild($children): bool
 {
+	// todo: should get $parent instead of $children
 	return count($children) == 1;
 }
 
