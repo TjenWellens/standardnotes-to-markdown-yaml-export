@@ -352,12 +352,6 @@ function parseChild($child, $note_filename)
  */
 function parseList($list, $note_filename): string
 {
-	// skip weird nesting
-	if (firstOnlyChildHasType($list, "listitem") && firstOnlyChildHasType($list['children'][0], "list")) {
-		return parseList($list['children'][0]['children'][0], $note_filename);
-	}
-
-
 	// handle different types of lists (ordered, unordered, checklist)
 	$listType = $list['listType'];
 	$listTypePrefix = "";
@@ -380,14 +374,25 @@ function parseList($list, $note_filename): string
 			continue;
 		}
 
+		// handle weird nesting of lists when indented
+		if (firstOnlyChildHasType($child, "list")) {
+			$parsed .= parseList($child['children'][0], $note_filename);
+			continue;
+		}
+
+		// handle indentation
 		$indent = $child['indent'];
 		if (!$indent || $indent <= 0) {
 			$indent = 0;
 		}
 		$indentPrefix = str_repeat("\t", $indent);
 
-		// todo: handle soft-newlines - should I replace every newline with `$indent * \t + \n`
 		$textInListItem = joinChildren("", $child['children'], $note_filename);
+		$obsidianDoesMultilineAlignmentWith3Spaces = "  ";
+		$textInListItem = preg_replace("/\n/", "\n"
+			. $indentPrefix
+			. $obsidianDoesMultilineAlignmentWith3Spaces
+			, $textInListItem);
 		$parsed .= "\n"
 			. $indentPrefix
 			. $listTypePrefix
