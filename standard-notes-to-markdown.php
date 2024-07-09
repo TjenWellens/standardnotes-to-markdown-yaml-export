@@ -100,12 +100,25 @@ else $sn_file = file_get_contents($argv[1]);
 if(!isset($argv[2])) $export_path = __DIR__.'/notes/';
 else $export_path = __DIR__.trim($argv[2]);
 
+/**
+ * (optional) third argument to be a folder containing standard notes files in the format of <uuid>.<ext>
+ * <br/>
+ * examples: 5e97c50b-ea24-4b52-bd05-b902594b367a.png, 9a09b759-6ab7-4431-b7b3-6096c4635fb8.df
+ */
+if(!isset($argv[3])) $resourceFilesDir = false;
+else $resourceFilesDir = $argv[3];
+
 $sn_file_metadata_dir = dirname($argv[1])."/Items/SN_File";
 $resource_path = $export_path.'/resources';
 
 // sanity
 if(file_exists($export_path)) {
 	echo 'Error: Export path already exists! We don\'t want to overwrite anything... Delete it or choose another path.';
+	exit;
+}
+// sanity
+if($resourceFilesDir && !file_exists($resourceFilesDir)) {
+	echo 'Error: ResourceFileDir is set, but folder does not exist.';
 	exit;
 }
 else {
@@ -254,12 +267,12 @@ function parseChild($child, $note_filename)
 		case "paragraph":
 			$indent = $child['indent'];
 			$paragraphSeparator = "";
-			if ($indent && $indent > 0) {
+			if($indent && $indent > 0) {
 //				$paragraphSeparator .= str_repeat("$\quad$", $indent); // hack to make it look tab-like
 				$paragraphSeparator .= str_repeat("    ", $indent); // convert into quote
 			}
 			// todo: should I replace every newline with `$indent * \t + \n`
-			return $paragraphSeparator . joinChildren($paragraphSeparator, $child['children'], $note_filename);
+			return $paragraphSeparator.joinChildren($paragraphSeparator, $child['children'], $note_filename);
 		case "tablerow":
 			$row = joinChildren("|", $child['children'], $note_filename);
 			return "|$row|";
@@ -301,18 +314,25 @@ function parseChild($child, $note_filename)
 		case "snfile":
 			$fileUuid = $child['fileUuid'];
 			list($original_filename, $metadata_filepath) = lookupResourceFilename($fileUuid);
-			global $resource_path;
+			global $resource_path, $resourceFilesDir;
 			mkdir("$resource_path/$note_filename");
-			copy($metadata_filepath, "$resource_path/$note_filename/metadata_$fileUuid.json");
-			return "![[./resources/$note_filename/{$fileUuid}_$original_filename]]";
+			$extension = preg_replace("/.*\./", "", $original_filename);
+			if(file_exists($resourceFilesDir."/$fileUuid.$extension")) {
+				copy($resourceFilesDir."/$fileUuid.$extension", "$resource_path/$note_filename/$fileUuid.$extension");
+			}
+			else {
+				echo "error: could not find file uuid=$fileUuid filename='$original_filename' from note $note_filename. This is normal if you did not set argv[3]='$resourceFilesDir'\n";
+			}
+			copy($metadata_filepath, "$resource_path/$note_filename/metadata_$fileUuid.json"); // name starts with metadata, so ppl don't think their file is there and delete their standard notes account
+			return "![[./resources/$note_filename/$fileUuid.$extension]]";
 		case "listitem":
 			// listitem outside of a list (inside a list, see case "list")
 			// should only be in case of web-clipping or such, not normal for standard-notes super note
 			$indent = $child['indent'];
-			if (!$indent || $indent <= 0) {
+			if(!$indent || $indent <= 0) {
 				$indent = 0;
 			}
-			return str_repeat("\t", $indent) . "- ".joinChildren("", $child['children'], $note_filename);
+			return str_repeat("\t", $indent)."- ".joinChildren("", $child['children'], $note_filename);
 		case "list":
 			return parseList($child, $note_filename);
 		case "code":
@@ -320,7 +340,7 @@ function parseChild($child, $note_filename)
 				return "\n#error: code without children\n";
 			}
 			if(firstChildIsType($child, "code")) {
-				if (!hasSingleChild($child)) {
+				if(!hasSingleChild($child)) {
 					// confirm only 1 child -> lazyness assuming this case never occurs
 					// if it does occur, you will want to co something more complicated than getting [0]'t child and ignoring the rest
 					return "\n#error: nested code with multiple children\n";
@@ -356,12 +376,15 @@ function parseList($list, $note_filename): string
 	// handle different types of lists (ordered, unordered, checklist)
 	$listType = $list['listType'];
 	$listTypePrefix = "";
-	switch($listType){
-		case "number": $listTypePrefix = "1. ";
+	switch($listType) {
+		case "number":
+			$listTypePrefix = "1. ";
 			break;
-		case "bullet": $listTypePrefix = "- ";
+		case "bullet":
+			$listTypePrefix = "- ";
 			break;
-		case "check": $listTypePrefix = "- [] ";
+		case "check":
+			$listTypePrefix = "- [] ";
 			break;
 		default:
 			$listTypePrefix = "#error: unknown listType '$listType' ";
@@ -370,20 +393,20 @@ function parseList($list, $note_filename): string
 	$parsed = "";
 	foreach($list['children'] as $child) {
 		$childType = $child['type'];
-		if ($childType != "listitem") {
+		if($childType != "listitem") {
 			$parsed .= "#error: expected type='listitem' but got type='$childType'";
 			continue;
 		}
 
 		// handle weird nesting of lists when indented
-		if (firstOnlyChildHasType($child, "list")) {
+		if(firstOnlyChildHasType($child, "list")) {
 			$parsed .= parseList($child['children'][0], $note_filename);
 			continue;
 		}
 
 		// handle indentation
 		$indent = $child['indent'];
-		if (!$indent || $indent <= 0) {
+		if(!$indent || $indent <= 0) {
 			$indent = 0;
 		}
 		$indentPrefix = str_repeat("\t", $indent);
@@ -391,12 +414,12 @@ function parseList($list, $note_filename): string
 		$textInListItem = joinChildren("", $child['children'], $note_filename);
 		$obsidianDoesMultilineAlignmentWith3Spaces = "  ";
 		$textInListItem = preg_replace("/\n/", "\n"
-			. $indentPrefix
-			. $obsidianDoesMultilineAlignmentWith3Spaces
+			.$indentPrefix
+			.$obsidianDoesMultilineAlignmentWith3Spaces
 			, $textInListItem);
 		$parsed .= "\n"
-			. $indentPrefix
-			. $listTypePrefix
+			.$indentPrefix
+			.$listTypePrefix
 			.$textInListItem;
 	}
 
