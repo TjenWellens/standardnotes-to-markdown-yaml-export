@@ -305,18 +305,15 @@ function parseChild($child, $note_filename)
 			copy($metadata_filepath, "$resource_path/$note_filename/metadata_$fileUuid.json");
 			return "![[./resources/$note_filename/{$fileUuid}_$original_filename]]";
 		case "listitem":
+			// listitem outside of a list (inside a list, see case "list")
+			// should only be in case of web-clipping or such, not normal for standard-notes super note
 			$indent = $child['indent'];
 			if (!$indent || $indent <= 0) {
 				$indent = 0;
 			}
-			// todo: should I replace every newline with `$indent * \t + \n`
 			return str_repeat("\t", $indent) . "- ".joinChildren("", $child['children'], $note_filename);
 		case "list":
-			if (firstOnlyChildHasType($child['children'], "listitem") && firstOnlyChildHasType($child['children'][0]['children'], "list")) {
-				return parseChild($child['children'][0]['children'][0], $note_filename);
-			}
-			// todo: handle different types of lists (ordered, unordered, checklist)
-			return "\n".joinChildren("\n", $child['children'], $note_filename)."\n";
+			return parseList($child, $note_filename);
 		case "code":
 			if(!$child['children']) {
 				return "\n#error: code without children\n";
@@ -339,8 +336,61 @@ function parseChild($child, $note_filename)
 		case "tab":
 			return "\t";
 		default:
-			return "#error: $type";
+			return "#error: unknown type='$type' ";
 	}
+}
+
+/**
+ * @param $list
+ * @param $note_filename
+ * @return string
+ * @throws JsonException
+ */
+function parseList($list, $note_filename): string
+{
+	// skip weird nesting
+	if (firstOnlyChildHasType($list['children'], "listitem") && firstOnlyChildHasType($list['children'][0]['children'], "list")) {
+		return parseList($list['children'][0]['children'][0], $note_filename);
+	}
+
+
+	// handle different types of lists (ordered, unordered, checklist)
+	$listType = $list['listType'];
+	$listTypePrefix = "";
+	switch($listType){
+		case "number": $listTypePrefix = "1. ";
+			break;
+		case "bullet": $listTypePrefix = "- ";
+			break;
+		case "check": $listTypePrefix = "- [] ";
+			break;
+		default:
+			$listTypePrefix = "#error: unknown listType '$listType' ";
+	}
+
+	$parsed = "";
+	foreach($list['children'] as $child) {
+		$childType = $child['type'];
+		if ($childType != "listitem") {
+			$parsed .= "#error: expected type='listitem' but got type='$childType'";
+			continue;
+		}
+
+		$indent = $child['indent'];
+		if (!$indent || $indent <= 0) {
+			$indent = 0;
+		}
+		$indentPrefix = str_repeat("\t", $indent);
+
+		// todo: handle soft-newlines - should I replace every newline with `$indent * \t + \n`
+		$textInListItem = joinChildren("", $child['children'], $note_filename);
+		$parsed .= "\n"
+			. $indentPrefix
+			. $listTypePrefix
+			.$textInListItem;
+	}
+
+	return $parsed;
 }
 
 /**
