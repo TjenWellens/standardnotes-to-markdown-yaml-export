@@ -255,7 +255,8 @@ function parseChild($child, $note_filename)
 			$indent = $child['indent'];
 			$paragraphSeparator = "";
 			if ($indent && $indent > 0) {
-				$paragraphSeparator .= str_repeat("$\quad$", $indent);
+//				$paragraphSeparator .= str_repeat("$\quad$", $indent); // hack to make it look tab-like
+				$paragraphSeparator .= str_repeat("    ", $indent); // convert into quote
 			}
 			// todo: should I replace every newline with `$indent * \t + \n`
 			return $paragraphSeparator . joinChildren($paragraphSeparator, $child['children'], $note_filename);
