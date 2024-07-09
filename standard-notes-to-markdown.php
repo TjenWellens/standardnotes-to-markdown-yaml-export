@@ -581,7 +581,9 @@ function updateFileDates(string $filePath, $updated_at, $created_at)
 
 	// set created date
 	$createdSetfileDate=date("m/d/Y H:i:s", strtotime($created_at));
-	exec("setfile -d '$createdSetfileDate' '$filePath'");
+	exec("setfile -d \"$createdSetfileDate\" \"$filePath\"");
+	// copy via Finder kept the dates, but copy via terminal 'cp -r notes ...' lost all 'birth date'
+	// You can check yourself with stat -x notes/*
 }
 
 foreach($notes as $note_uuid => $note_data) {
