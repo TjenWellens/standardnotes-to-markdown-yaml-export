@@ -208,7 +208,6 @@ function parseContent($note_data, $filename)
  */
 function parseChild($child, $note_filename)
 {
-	// todo: should we handle indents?
 	$type = $child['type'];
 	switch($type) {
 		case "code-highlight":
@@ -253,7 +252,13 @@ function parseChild($child, $note_filename)
 		case "collapsible-title":
 			return joinChildren("", $child['children'], $note_filename);
 		case "paragraph":
-			return joinChildren("", $child['children'], $note_filename);
+			$indent = $child['indent'];
+			$paragraphSeparator = "";
+			if ($indent && $indent > 0) {
+				$paragraphSeparator .= str_repeat("$\quad$", $indent);
+			}
+			// todo: should I replace every newline with `$indent * \t + \n`
+			return $paragraphSeparator . joinChildren($paragraphSeparator, $child['children'], $note_filename);
 		case "tablerow":
 			$row = joinChildren("|", $child['children'], $note_filename);
 			return "|$row|";
@@ -298,16 +303,25 @@ function parseChild($child, $note_filename)
 			global $resource_path;
 			mkdir("$resource_path/$note_filename");
 			copy($metadata_filepath, "$resource_path/$note_filename/metadata_$fileUuid.json");
-			return "![[./resources/$note_filename/${fileUuid}_$original_filename]]";
+			return "![[./resources/$note_filename/{$fileUuid}_$original_filename]]";
 		case "listitem":
-			return "*".joinChildren("", $child['children'], $note_filename);
+			$indent = $child['indent'];
+			if (!$indent || $indent <= 0) {
+				$indent = 0;
+			}
+			// todo: should I replace every newline with `$indent * \t + \n`
+			return str_repeat("\t", $indent) . "- ".joinChildren("", $child['children'], $note_filename);
 		case "list":
+			if (firstOnlyChildHasType($child['children'], "listitem") && firstOnlyChildHasType($child['children'][0]['children'], "list")) {
+				return parseChild($child['children'][0]['children'][0], $note_filename);
+			}
+			// todo: handle different types of lists (ordered, unordered, checklist)
 			return "\n".joinChildren("\n", $child['children'], $note_filename)."\n";
 		case "code":
 			if(!$child['children']) {
 				return "\n#error: code without children\n";
 			}
-			if($child['children'][0]['type'] == "code") {
+			if(firstChildIsType($child['children'], "code")) {
 				// todo: confirm only 1 child
 				// don't do anything the nested code will do all that needs to happen
 				return parseChild($child['children'][0], $note_filename);
@@ -327,6 +341,35 @@ function parseChild($child, $note_filename)
 		default:
 			return "#error: $type";
 	}
+}
+
+/**
+ * @param $parent
+ * @param $type
+ * @return bool
+ */
+function firstOnlyChildHasType($parent, $type): bool
+{
+	return hasSingleChild($parent) && firstChildIsType($parent, $type);
+}
+
+/**
+ * @param $parent
+ * @param $type
+ * @return bool
+ */
+function firstChildIsType($parent, $type): bool
+{
+	return $parent[0]['type'] == $type;
+}
+
+/**
+ * @param $children
+ * @return bool
+ */
+function hasSingleChild($children): bool
+{
+	return count($children) == 1;
 }
 
 /**
