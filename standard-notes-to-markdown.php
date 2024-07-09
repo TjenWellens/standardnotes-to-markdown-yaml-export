@@ -89,10 +89,14 @@ Standard Note Tag titles contain a dot `.` if a paid account (called "Extended")
 
 */
 
+$EXPECTED_CALL_SYNTAX = 'expected format: php standard-notes-to-markdown.php <path-to-backup.txt> [<foldername-tooutput-notes>] [<path-to-folder-you-created-with-attachments>]
+example: php standard-notes-to-markdown.php "/Users/foo/Downloads/Standard Notes Backup - Tue Jul 09 2024 11_28_53 GMT+0100/Standard Notes Backup and Import File.txt" /notes/ "/Users/foo/Downloads/standard-notes-attachments/"
+';
 
 // Require Args
 if(!isset($argv[1])) {
-	echo 'Error: Need to pass the Standard Notes file path as argument/parameter 1';
+	echo 'Error: Need to pass the Standard Notes file path as argument/parameter 1\n';
+	echo $EXPECTED_CALL_SYNTAX;
 	exit;
 }
 else $sn_file = file_get_contents($argv[1]);
@@ -103,7 +107,7 @@ else $export_path = __DIR__.trim($argv[2]);
 /**
  * (optional) third argument to be a folder containing standard notes files in the format of <uuid>.<ext>
  * <br/>
- * examples: 5e97c50b-ea24-4b52-bd05-b902594b367a.png, 9a09b759-6ab7-4431-b7b3-6096c4635fb8.df
+ * examples: 5e97c50b-ea24-4b52-bd05-b902594b367a.png, 9a09b759-6ab7-4431-b7b3-6096c4635fb8.pdf
  */
 if(!isset($argv[3])) $resourceFilesDir = false;
 else $resourceFilesDir = $argv[3];
@@ -118,7 +122,8 @@ if(file_exists($export_path)) {
 }
 // sanity
 if($resourceFilesDir && !file_exists($resourceFilesDir)) {
-	echo 'Error: ResourceFileDir is set, but folder does not exist.';
+	echo 'Error: ResourceFileDir is set, but folder does not exist.\n';
+	echo $EXPECTED_CALL_SYNTAX;
 	exit;
 }
 else {
