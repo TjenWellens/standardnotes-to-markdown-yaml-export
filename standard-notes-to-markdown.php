@@ -584,6 +584,7 @@ function updateFileDates(string $filePath, $updated_at, $created_at)
 	exec("setfile -d \"$createdSetfileDate\" \"$filePath\"");
 	// copy via Finder kept the dates, but copy via terminal 'cp -r notes ...' lost all 'birth date'
 	// You can check yourself with stat -x notes/*
+	// did not test: "If you copy files with the cp command, you can use the -p flag to preserver the attributes (file owner, timestamps, permissions)." src: https://help.nextcloud.com/t/moving-files-on-the-client-or-server-side-without-forcing-everything-to-re-sync/156093/2
 }
 
 foreach($notes as $note_uuid => $note_data) {
